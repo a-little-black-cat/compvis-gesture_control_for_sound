@@ -29,3 +29,4 @@ for Z in range(10,1000):
 plt.plot(L)
 plt.xlabel('distance(Z)')
 plt.ylabel('length')
+plt.show()
