@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 X1 = -5
 X2 = 5
 f = 1 #focal length
+#derived from X/Z = -chi/f
 
 L=[]
 for Z in range(10,1000):
