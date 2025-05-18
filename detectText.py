@@ -1,125 +1,129 @@
 import cv2
-import time
 import mediapipe as mp
-import pytesseract
-from tkinter import *
-from PIL import Image as PILImage, ImageTk
+import threading
+import math
+import array  # For safe audio buffer creation
+import sounddevice as sd
+import numpy as np
+import tkinter as tk
+from PIL import Image, ImageTk
 
-class DetectText:
-    def __init__(self, mode=False, maxHands=2, detectionCon=0.5, trackCon=0.5):
-        self.mode = mode
-        self.maxHands = maxHands
-        self.detectionCon = detectionCon
-        self.trackCon = trackCon
-        self.handsMp = mp.solutions.hands
-        self.hands = self.handsMp.Hands(
-            static_image_mode=self.mode,
-            max_num_hands=self.maxHands,
-            min_detection_confidence=self.detectionCon,
-            min_tracking_confidence=self.trackCon
+class HandTracker:
+    def __init__(self):
+        # Initialize MediaPipe for detecting and tracking hands
+        self.hands = mp.solutions.hands.Hands(
+            max_num_hands=1,
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.5
         )
-        self.mpDraw = mp.solutions.drawing_utils
-        self.tipIds = [4, 8, 12, 16, 20]
-        self.results = None
-        self.lmsList = []
+        self.drawing_utils = mp.solutions.drawing_utils
 
-    def findFingers(self, frame, draw=True):
-        imgRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.results = self.hands.process(imgRGB)
-        if self.results.multi_hand_landmarks:
-            for handLms in self.results.multi_hand_landmarks:
-                if draw:
-                    self.mpDraw.draw_landmarks(frame, handLms, self.handsMp.HAND_CONNECTIONS)
-        return frame
+    def detect_hands(self, frame):
+        """
+        Detect hand landmarks in a given BGR frame.
+        Returns the detection results.
+        """
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.hands.process(rgb)
+        return results
 
-    def findPosition(self, frame, handNo=0, draw=True):
-        xList = []
-        yList = []
-        bbox = []
-        self.lmsList = []
-        if self.results and self.results.multi_hand_landmarks:
-            myHand = self.results.multi_hand_landmarks[handNo]
-            for id, lm in enumerate(myHand.landmark):
-                h, w, c = frame.shape
-                cx, cy = int(lm.x * w), int(lm.y * h)
-                xList.append(cx)
-                yList.append(cy)
-                self.lmsList.append([id, cx, cy])
-                if draw:
-                    cv2.circle(frame, (cx, cy), 5, (255, 0, 255), cv2.FILLED)
-            xmin, xmax = min(xList), max(xList)
-            ymin, ymax = min(yList), max(yList)
-            bbox = xmin, ymin, xmax, ymax
-            if draw:
-                cv2.rectangle(frame, (xmin - 20, ymin - 20), (xmax + 20, ymax + 20), (0, 255, 0), 2)
-        return self.lmsList, bbox
+class AudioGeneration:
+    def __init__(self):
+        self.fs = 16000  # Sample rate
+        self.freq = 440  # Frequency of sine wave
+        self.running = False
+        self.phase = 0.0
+        self.lock = threading.Lock()
 
-    def findFingerUp(self):
-        fingers = []
-        if not self.lmsList:
-            return fingers
-        # Thumb
-        if self.lmsList[self.tipIds[0]][1] > self.lmsList[self.tipIds[0] - 1][1]:
-            fingers.append(1)
-        else:
-            fingers.append(0)
-        # Fingers
-        for id in range(1, 5):
-            if self.lmsList[self.tipIds[id]][2] < self.lmsList[self.tipIds[id] - 2][2]:
-                fingers.append(1)
-            else:
-                fingers.append(0)
-        return fingers
+    def start_audio(self):
+        if not self.running:
+            self.running = True
+            threading.Thread(target=self.audioGen, daemon=True).start()
 
-# Global variables
-cap = None
-detector = DetectText()
+    def stop_audio(self):
+        with self.lock:
+            self.running = False
 
-def open_camera():
-    global cap
-    cap = cv2.VideoCapture(0)
-    update_frame()
-    button1.pack_forget()
-    button2.pack()
+    def audioGen(self):
+        duration = 0.1  # chunk duration in seconds
+        chunk_size = int(self.fs * duration)
+        t = np.arange(chunk_size) / self.fs
 
-def close_camera():
-    global cap
-    if cap:
-        cap.release()
-    label_widget.config(image='')
-    button1.pack()
-    button2.pack_forget()
+        def callback(outdata, frames, time, status):
+            with self.lock:
+                if not self.running:
+                    raise sd.CallbackStop()
 
-def update_frame():
-    global cap
-    if cap and cap.isOpened():
-        ret, frame = cap.read()
+                # Calculate the samples with phase continuity
+                nonlocal t
+                samples = np.sin(2 * np.pi * self.freq * t + self.phase).astype(np.float32) * 0.5
+                outdata[:] = samples.reshape(-1, 1)
+
+                # Update phase for continuity
+                self.phase += 2 * np.pi * self.freq * frames / self.fs
+                self.phase = self.phase % (2 * np.pi)
+
+                # Update time array to continue waveform properly
+                t += frames / self.fs
+                t = t % duration
+
+        with sd.OutputStream(channels=1, callback=callback, samplerate=self.fs, dtype='float32'):
+            while True:
+                with self.lock:
+                    if not self.running:
+                        break
+                sd.sleep(100)
+
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Hand Tracker with Audio")
+
+        self.cap = cv2.VideoCapture(0)
+        self.hand_tracker = HandTracker()
+        self.audio_gen = AudioGeneration()
+
+        # Set up GUI canvas for displaying video
+        self.canvas = tk.Canvas(root, width=640, height=480)
+        self.canvas.pack()
+
+        self.update_video()  # Start video capture loop
+
+    def update_video(self):
+        """Capture frame, process hand tracking, and update GUI."""
+        ret, frame = self.cap.read()
         if ret:
-            frame = detector.findFingers(frame)
-            lmsList, _ = detector.findPosition(frame)
-            opencv_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
-            captured_image = PILImage.fromarray(opencv_image)
-            photo_image = ImageTk.PhotoImage(image=captured_image)
-            label_widget.photo_image = photo_image
-            label_widget.configure(image=photo_image)
-        label_widget.after(10, update_frame)
+            frame = cv2.flip(frame, 1)  # Mirror the video for natural interaction
+            results = self.hand_tracker.detect_hands(frame)
 
-# GUI setup
-window = Tk()
-window.title("opencv-mediapipe CG")
-window.geometry("1000x800")
-window.bind('<Escape>', lambda e: window.quit())
+            if results.multi_hand_landmarks:
+                self.audio_gen.start_audio()
+                for hand_landmarks in results.multi_hand_landmarks:
+                    # Draw landmarks and connections on the frame
+                    self.hand_tracker.drawing_utils.draw_landmarks(
+                        frame, hand_landmarks, mp.solutions.hands.HAND_CONNECTIONS
+                    )
+            else:
+                self.audio_gen.stop_audio()
 
-label = Label(window, text="CG", font=("Helvetica", 16))
-label.pack(pady=10)
+            # Convert OpenCV image to a format compatible with Tkinter
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = ImageTk.PhotoImage(Image.fromarray(img))
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=img)
+            self.canvas.imgtk = img
 
-label_widget = Label(window)
-label_widget.pack()
+        # Schedule the next frame update after 10 ms
+        self.root.after(10, self.update_video)
 
-button1 = Button(window, text="Open Camera", command=open_camera)
-button1.pack(pady=5)
+    def on_close(self):
+        """Release resources on window close."""
+        self.audio_gen.stop_audio()
+        self.cap.release()
+        self.root.destroy()
 
-button2 = Button(window, text="Close Camera", command=close_camera)
-button2.pack_forget()
-
-window.mainloop()
+# Run the application
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    root.mainloop()
