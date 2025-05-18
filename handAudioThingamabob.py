@@ -36,6 +36,7 @@ class AudioGeneration:
         self.running = False
         self.lock = threading.Lock()
         self.phase = 0.0  # Phase in radians
+        self.roomSize = 0.3
 
 
     def start_audio(self):
@@ -76,14 +77,19 @@ class AudioGeneration:
     def set_amplitude(self,amplitude):
         with self.lock:
             self.amplitude=amplitude
-    def set_parameters(self, freq, amplitude):
+
+    def set_room_size(self, roomSize):
+        with self.roomSize:
+            self.roomSize = roomSize
+
+    def set_parameters(self, freq, amplitude, roomSize):
         with self.lock:
             alpha = 0.2 # smoothing factor ,, how much influence the new value has compared to the old value (self.freq, self.ampl
             self.freq = self.freq * (1-alpha) + freq * alpha
             self.amplitude = self.amplitude * (1-alpha) + amplitude * alpha
+            self.roomSize = self.roomSize * (1-alpha) + roomSize * alpha
             # exponential smoothing: low-pass filtering.
-    ##def set_reverb(self):
-        #sets reverb,,
+
 
 
 
@@ -103,6 +109,7 @@ class App:
         self.frame_count = 0
         self.freq_buffer = []
         self.amp_buffer = []
+        self.roomSize_buffer = []
         self.smoothing_window = 5
         self.update_interval = 5  # update audio every N frames
 
@@ -135,16 +142,19 @@ class App:
                     # Store recent values for smoothing
                     self.freq_buffer.append(freq)
                     self.amp_buffer.append(amplitude)
+                    self.roomSize_buffer.append(room_size)
 
                     if len(self.freq_buffer) > self.smoothing_window:
                         self.freq_buffer.pop(0)
                         self.amp_buffer.pop(0)
+                        self.roomSize_buffer.pop(0)
 
                     self.frame_count += 1
                     if self.frame_count % self.update_interval == 0:
                         avg_freq = sum(self.freq_buffer) / len(self.freq_buffer)
                         avg_amp = sum(self.amp_buffer) / len(self.amp_buffer)
-                        self.audio_gen.set_parameters(avg_freq, avg_amp)
+                        avg_roomSize = sum(self.roomSize_buffer) / len(self.roomSize_buffer)
+                        self.audio_gen.set_parameters(avg_freq, avg_amp,avg_roomSize)
 
                     # Mapping distance between thumb and index for reverb -- 4: thumb tip | 8: index tip
                     thumbTip_pos = hand_landmarks.landmark[4]
@@ -164,7 +174,20 @@ class App:
                     indexTip_posXY = [indexTip_posX, indexTip_posY]
 
                     tipDistance_reverb = math.dist(thumbTip_posXY,indexTip_posXY)
-                    ###print(tipDistance_reverb)
+                    print(tipDistance_reverb)
+                    # using the Eyring Equation
+
+                    volume_reverb = pow(tipDistance_reverb, 3) #volume of a cubic environment
+                    scaled_volume = min(max(volume_reverb * 100, 0), 1.0)  # Clamp to [0, 1]
+
+                    room_size = min(max(volume_reverb * 5, 0.1), 1.0)
+                    Surface = pow(tipDistance_reverb,2) * 6 ##for a cubic environment
+                    absorption = 0.35 ## will modify so that it is customizable
+
+
+                    reverbTime = -0.161*scaled_volume/(Surface * np.log(1-absorption))
+
+                    print(volume_reverb)
 
             else:
                 self.audio_gen.stop_audio()

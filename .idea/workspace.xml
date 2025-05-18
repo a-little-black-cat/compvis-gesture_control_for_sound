@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="02b40753-92ef-4c1e-9f8e-eabc3fe29d5f" name="Changes" comment="using palm(pos 0) - can control sound frequency (x) and amplitude (y)&#10;&#10;hand rec works with mediapipe">
+    <list default="true" id="02b40753-92ef-4c1e-9f8e-eabc3fe29d5f" name="Changes" comment="we cooking with this chat&#10;&#10;hand rec works with mediapipe">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/handAudioThingamabob.py" beforeDir="false" afterPath="$PROJECT_DIR$/handAudioThingamabob.py" afterDir="false" />
     </list>
@@ -126,7 +126,15 @@
       <option name="project" value="LOCAL" />
       <updated>1747600272044</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="we cooking with this chat&#10;&#10;hand rec works with mediapipe">
+      <option name="closed" value="true" />
+      <created>1747603054758</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1747603054758</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -146,6 +154,7 @@
     <MESSAGE value="mediapipe hand detection" />
     <MESSAGE value="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe" />
     <MESSAGE value="using palm(pos 0) - can control sound frequency (x) and amplitude (y)&#10;&#10;hand rec works with mediapipe" />
-    <option name="LAST_COMMIT_MESSAGE" value="using palm(pos 0) - can control sound frequency (x) and amplitude (y)&#10;&#10;hand rec works with mediapipe" />
+    <MESSAGE value="we cooking with this chat&#10;&#10;hand rec works with mediapipe" />
+    <option name="LAST_COMMIT_MESSAGE" value="we cooking with this chat&#10;&#10;hand rec works with mediapipe" />
   </component>
 </project>
