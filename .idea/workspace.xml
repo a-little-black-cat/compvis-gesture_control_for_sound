@@ -4,10 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="02b40753-92ef-4c1e-9f8e-eabc3fe29d5f" name="Changes" comment="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/detectText.py" beforeDir="false" afterPath="$PROJECT_DIR$/detectText.py" afterDir="false" />
-    </list>
+    <list default="true" id="02b40753-92ef-4c1e-9f8e-eabc3fe29d5f" name="Changes" comment="using palm(pos 0) - can control sound frequency (x) and amplitude (y)&#10;&#10;hand rec works with mediapipe" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -109,7 +106,15 @@
       <option name="project" value="LOCAL" />
       <updated>1747591310302</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="using palm(pos 0) - can control sound frequency (x) and amplitude (y)&#10;&#10;hand rec works with mediapipe">
+      <option name="closed" value="true" />
+      <created>1747599769011</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1747599769011</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -128,6 +133,7 @@
     <MESSAGE value="working on mediapipe for detecting hand" />
     <MESSAGE value="mediapipe hand detection" />
     <MESSAGE value="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe" />
-    <option name="LAST_COMMIT_MESSAGE" value="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe" />
+    <MESSAGE value="using palm(pos 0) - can control sound frequency (x) and amplitude (y)&#10;&#10;hand rec works with mediapipe" />
+    <option name="LAST_COMMIT_MESSAGE" value="using palm(pos 0) - can control sound frequency (x) and amplitude (y)&#10;&#10;hand rec works with mediapipe" />
   </component>
 </project>
