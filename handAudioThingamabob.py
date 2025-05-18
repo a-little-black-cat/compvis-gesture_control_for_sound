@@ -163,43 +163,29 @@ class App:
                     self.freq_buffer.append(freq)
                     self.amp_buffer.append(amplitude)
 
-
-
-                    # Mapping distance between thumb and index for reverb -- 4: thumb tip | 8: index tip
+                    # Mapping distance between thumb and index for reverb
                     thumbTip_pos = hand_landmarks.landmark[4]
                     indexTip_pos = hand_landmarks.landmark[8]
 
-                    ## one issue i might face is that if the hand is close to the screen the difference will appear larger, as whereas if it is farther away the difference will appear smaller.
-                    ## however, this can actually be utilised for a larger range?
-                    ## thumbtip_pos x - indextip_pos x & thumbtip_pos y - indextip_pos y ,, then grab hypotenuse?
                     thumbTip_posX = 1.0 - thumbTip_pos.x
                     thumbTip_posY = 1.0 - thumbTip_pos.y
-
                     indexTip_posX = 1.0 - indexTip_pos.x
                     indexTip_posY = 1.0 - indexTip_pos.y
 
-                    thumbTip_posXY = [thumbTip_posX, thumbTip_posY]
+                    tipDistance_reverb = math.hypot(
+                        thumbTip_posX - indexTip_posX, thumbTip_posY - indexTip_posY
+                    )
 
-                    indexTip_posXY = [indexTip_posX, indexTip_posY]
+                    # Normalize and map distance to a room size (e.g., 0.1 to 1.0)
+                    # Assuming hand moves ~0.05 to 0.4 range in distance
+                    min_dist = 0.03
+                    max_dist = 0.4
+                    normalized_dist = (tipDistance_reverb - min_dist) / (max_dist - min_dist)
+                    normalized_dist = min(max(normalized_dist, 0.0), 1.0)
 
-                    tipDistance_reverb = math.dist(thumbTip_posXY,indexTip_posXY)
-                    print(tipDistance_reverb)
-                    # using the Eyring Equation
-
-                    volume_reverb = pow(tipDistance_reverb, 3) #volume of a cubic environment
-                    scaled_volume = min(max(volume_reverb * 100, 0), 1.0)  # Clamp to [0, 1]
-
-                    room_size = min(max(volume_reverb * 5, 0.1), 1.0)
-                    Surface = pow(tipDistance_reverb,2) * 6 ##for a cubic environment
-                    absorption = 0.35 ## will modify so that it is customizable
-
-
-                    reverbTime = -0.161*scaled_volume/(Surface * np.log(1-absorption))
-
-                    print(volume_reverb)
-
+                    # Map to roomSize: 0.1 to 1.0 (reverb time)
+                    room_size = 0.1 + normalized_dist * 0.9
                     self.roomSize_buffer.append(room_size)
-
 
                     if len(self.freq_buffer) > self.smoothing_window:
                         self.freq_buffer.pop(0)
