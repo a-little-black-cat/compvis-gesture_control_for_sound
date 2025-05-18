@@ -28,6 +28,10 @@ class HandTracker:
         results = self.hands.process(rgb)
         return results
 
+import numpy as np
+import sounddevice as sd
+import threading
+
 class AudioGeneration:
     def __init__(self):
         self.fs = 16000  # Sample rate
@@ -35,9 +39,9 @@ class AudioGeneration:
         self.amplitude = 0.2
         self.running = False
         self.lock = threading.Lock()
-        self.phase = 0.0  # Phase in radians
-        self.roomSize = 0.3
-
+        self.phase = 0.0
+        self.roomSize = 0.3  # Affects reverb time
+        self.phase_offset = 0
 
     def start_audio(self):
         if not self.running:
@@ -48,6 +52,41 @@ class AudioGeneration:
         with self.lock:
             self.running = False
 
+    def set_frequency(self, freq):
+        with self.lock:
+            self.freq = freq
+
+    def set_amplitude(self, amplitude):
+        with self.lock:
+            self.amplitude = amplitude
+
+    def set_room_size(self, roomSize):
+        with self.lock:
+            self.roomSize = roomSize
+
+    def set_parameters(self, freq, amplitude, roomSize):
+        with self.lock:
+            alpha = 0.2  # Smoothing factor
+            self.freq = self.freq * (1 - alpha) + freq * alpha
+            self.amplitude = self.amplitude * (1 - alpha) + amplitude * alpha
+            self.roomSize = self.roomSize * (1 - alpha) + roomSize * alpha
+
+    def apply_reverb(self, signal, reverb_time, decay_factor=0.6, num_echoes=5):
+        """
+        Apply basic reverb using delayed and decayed signal copies.
+        """
+        reverb_signal = np.copy(signal)
+        delay_samples = int((reverb_time / num_echoes) * self.fs)
+
+        for i in range(1, num_echoes + 1):
+            decay = decay_factor ** i
+            echo = np.zeros_like(signal)
+            if delay_samples * i < len(signal):
+                echo[delay_samples * i:] = signal[:-delay_samples * i] * decay
+                reverb_signal += echo
+
+        return np.clip(reverb_signal, -1.0, 1.0)
+
     def audioGen(self):
         def callback(outdata, frames, time, status):
             with self.lock:
@@ -57,38 +96,19 @@ class AudioGeneration:
                 t = (np.arange(frames) + self.phase_offset) / self.fs
                 samples = self.amplitude * np.sin(2 * np.pi * self.freq * t).astype(np.float32)
 
-                outdata[:, 0] = samples
+                # Apply reverb using roomSize as the reverb time
+                samples = self.apply_reverb(samples, self.roomSize)
 
+                outdata[:, 0] = samples
                 self.phase_offset += frames
                 self.phase_offset %= self.fs
-        self.phase_offset = 0
+
         with sd.OutputStream(channels=1, callback=callback, samplerate=self.fs, dtype='float32', blocksize=1024):
             while True:
                 with self.lock:
                     if not self.running:
                         break
                 sd.sleep(100)
-
-
-    def set_frequency(self, freq):
-        with self.lock:
-            self.freq = freq
-
-    def set_amplitude(self,amplitude):
-        with self.lock:
-            self.amplitude=amplitude
-
-    def set_room_size(self, roomSize):
-        with self.roomSize:
-            self.roomSize = roomSize
-
-    def set_parameters(self, freq, amplitude, roomSize):
-        with self.lock:
-            alpha = 0.2 # smoothing factor ,, how much influence the new value has compared to the old value (self.freq, self.ampl
-            self.freq = self.freq * (1-alpha) + freq * alpha
-            self.amplitude = self.amplitude * (1-alpha) + amplitude * alpha
-            self.roomSize = self.roomSize * (1-alpha) + roomSize * alpha
-            # exponential smoothing: low-pass filtering.
 
 
 
@@ -142,19 +162,8 @@ class App:
                     # Store recent values for smoothing
                     self.freq_buffer.append(freq)
                     self.amp_buffer.append(amplitude)
-                    self.roomSize_buffer.append(room_size)
 
-                    if len(self.freq_buffer) > self.smoothing_window:
-                        self.freq_buffer.pop(0)
-                        self.amp_buffer.pop(0)
-                        self.roomSize_buffer.pop(0)
 
-                    self.frame_count += 1
-                    if self.frame_count % self.update_interval == 0:
-                        avg_freq = sum(self.freq_buffer) / len(self.freq_buffer)
-                        avg_amp = sum(self.amp_buffer) / len(self.amp_buffer)
-                        avg_roomSize = sum(self.roomSize_buffer) / len(self.roomSize_buffer)
-                        self.audio_gen.set_parameters(avg_freq, avg_amp,avg_roomSize)
 
                     # Mapping distance between thumb and index for reverb -- 4: thumb tip | 8: index tip
                     thumbTip_pos = hand_landmarks.landmark[4]
@@ -188,6 +197,21 @@ class App:
                     reverbTime = -0.161*scaled_volume/(Surface * np.log(1-absorption))
 
                     print(volume_reverb)
+
+                    self.roomSize_buffer.append(room_size)
+
+
+                    if len(self.freq_buffer) > self.smoothing_window:
+                        self.freq_buffer.pop(0)
+                        self.amp_buffer.pop(0)
+                        self.roomSize_buffer.pop(0)
+
+                    self.frame_count += 1
+                    if self.frame_count % self.update_interval == 0:
+                        avg_freq = sum(self.freq_buffer) / len(self.freq_buffer)
+                        avg_amp = sum(self.amp_buffer) / len(self.amp_buffer)
+                        avg_roomSize = sum(self.roomSize_buffer) / len(self.roomSize_buffer)
+                        self.audio_gen.set_parameters(avg_freq, avg_amp,avg_roomSize)
 
             else:
                 self.audio_gen.stop_audio()
