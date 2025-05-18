@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="02b40753-92ef-4c1e-9f8e-eabc3fe29d5f" name="Changes" comment="mediapipe hand detection">
+    <list default="true" id="02b40753-92ef-4c1e-9f8e-eabc3fe29d5f" name="Changes" comment="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/detectText.py" beforeDir="false" afterPath="$PROJECT_DIR$/detectText.py" afterDir="false" />
     </list>
@@ -101,7 +101,15 @@
       <option name="project" value="LOCAL" />
       <updated>1747298875690</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe">
+      <option name="closed" value="true" />
+      <created>1747591310302</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1747591310302</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -119,6 +127,7 @@
     <MESSAGE value="file" />
     <MESSAGE value="working on mediapipe for detecting hand" />
     <MESSAGE value="mediapipe hand detection" />
-    <option name="LAST_COMMIT_MESSAGE" value="mediapipe hand detection" />
+    <MESSAGE value="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe" />
+    <option name="LAST_COMMIT_MESSAGE" value="error with sound generation, will look into it later&#10;&#10;hand rec works with mediapipe" />
   </component>
 </project>

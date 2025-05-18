@@ -1,16 +1,13 @@
 import cv2
 import mediapipe as mp
 import threading
-import math
-import array  # For safe audio buffer creation
-import sounddevice as sd
 import numpy as np
+import sounddevice as sd
 import tkinter as tk
 from PIL import Image, ImageTk
 
 class HandTracker:
     def __init__(self):
-        # Initialize MediaPipe for detecting and tracking hands
         self.hands = mp.solutions.hands.Hands(
             max_num_hands=1,
             min_detection_confidence=0.7,
@@ -19,18 +16,15 @@ class HandTracker:
         self.drawing_utils = mp.solutions.drawing_utils
 
     def detect_hands(self, frame):
-        """
-        Detect hand landmarks in a given BGR frame.
-        Returns the detection results.
-        """
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(rgb)
         return results
 
 class AudioGeneration:
     def __init__(self):
-        self.fs = 16000  # Sample rate
-        self.freq = 440  # Frequency of sine wave
+        self.fs = 44100
+        self.amplitude = 0.8
+        self.freq = 440
         self.running = False
         self.phase = 0.0
         self.lock = threading.Lock()
@@ -45,34 +39,35 @@ class AudioGeneration:
             self.running = False
 
     def audioGen(self):
-        duration = 0.1  # chunk duration in seconds
-        chunk_size = int(self.fs * duration)
-        t = np.arange(chunk_size) / self.fs
-
         def callback(outdata, frames, time, status):
             with self.lock:
                 if not self.running:
                     raise sd.CallbackStop()
 
-                # Calculate the samples with phase continuity
-                nonlocal t
-                samples = np.sin(2 * np.pi * self.freq * t + self.phase).astype(np.float32) * 0.5
-                outdata[:] = samples.reshape(-1, 1)
+                t = (np.arange(frames) + self.phase_offset) / self.fs
+                samples = self.amplitude * np.sin(2 * np.pi * self.freq * t).astype(np.float32)
 
-                # Update phase for continuity
-                self.phase += 2 * np.pi * self.freq * frames / self.fs
-                self.phase = self.phase % (2 * np.pi)
+                outdata[:, 0] = samples
 
-                # Update time array to continue waveform properly
-                t += frames / self.fs
-                t = t % duration
-
+                self.phase_offset += frames
+                self.phase_offset %= self.fs
+        self.phase_offset = 0
         with sd.OutputStream(channels=1, callback=callback, samplerate=self.fs, dtype='float32'):
             while True:
                 with self.lock:
                     if not self.running:
                         break
                 sd.sleep(100)
+
+
+    def set_frequency(self, freq):
+        with self.lock:
+            self.freq = freq
+
+    def set_amplitude(self,amplitude):
+        with self.lock:
+            self.amplitude=amplitude
+
 
 class App:
     def __init__(self, root):
@@ -83,45 +78,49 @@ class App:
         self.hand_tracker = HandTracker()
         self.audio_gen = AudioGeneration()
 
-        # Set up GUI canvas for displaying video
         self.canvas = tk.Canvas(root, width=640, height=480)
         self.canvas.pack()
 
-        self.update_video()  # Start video capture loop
+        self.audio_gen.start_audio()
+        self.update_video()
 
     def update_video(self):
-        """Capture frame, process hand tracking, and update GUI."""
         ret, frame = self.cap.read()
         if ret:
-            frame = cv2.flip(frame, 1)  # Mirror the video for natural interaction
+            frame = cv2.flip(frame, 1)
             results = self.hand_tracker.detect_hands(frame)
 
             if results.multi_hand_landmarks:
-                self.audio_gen.start_audio()
                 for hand_landmarks in results.multi_hand_landmarks:
-                    # Draw landmarks and connections on the frame
                     self.hand_tracker.drawing_utils.draw_landmarks(
                         frame, hand_landmarks, mp.solutions.hands.HAND_CONNECTIONS
                     )
-            else:
-                self.audio_gen.stop_audio()
 
-            # Convert OpenCV image to a format compatible with Tkinter
+                    #palm_y : amplitude
+                    #palm_x : frequency
+
+                    palm_pos = hand_landmarks.landmark[0]
+                    normalized_x = 1.0 - palm_pos.x
+                    freq = 220 + (880 - 220) * normalized_x
+
+                    self.audio_gen.set_frequency(freq)
+
+                    normalized_y = 1.0 - palm_pos.y
+                    amplitude = 0.1 + 0.4 * normalized_y
+                    self.audio_gen.set_amplitude(amplitude)
+
             img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = ImageTk.PhotoImage(Image.fromarray(img))
             self.canvas.create_image(0, 0, anchor=tk.NW, image=img)
             self.canvas.imgtk = img
 
-        # Schedule the next frame update after 10 ms
         self.root.after(10, self.update_video)
 
     def on_close(self):
-        """Release resources on window close."""
         self.audio_gen.stop_audio()
         self.cap.release()
         self.root.destroy()
 
-# Run the application
 if __name__ == "__main__":
     root = tk.Tk()
     app = App(root)
