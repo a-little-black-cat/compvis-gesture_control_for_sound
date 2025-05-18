@@ -5,6 +5,14 @@ import numpy as np
 import sounddevice as sd
 import tkinter as tk
 from PIL import Image, ImageTk
+from pysndfx import AudioEffectsChain
+import math
+
+fx = (
+    AudioEffectsChain()
+    .highshelf()
+    .reverb()
+)
 
 class HandTracker:
     def __init__(self):
@@ -22,12 +30,13 @@ class HandTracker:
 
 class AudioGeneration:
     def __init__(self):
-        self.fs = 44100
-        self.amplitude = 0.8
-        self.freq = 440
+        self.fs = 16000  # Sample rate
+        self.freq = 440.0
+        self.amplitude = 0.2
         self.running = False
-        self.phase = 0.0
         self.lock = threading.Lock()
+        self.phase = 0.0  # Phase in radians
+
 
     def start_audio(self):
         if not self.running:
@@ -52,7 +61,7 @@ class AudioGeneration:
                 self.phase_offset += frames
                 self.phase_offset %= self.fs
         self.phase_offset = 0
-        with sd.OutputStream(channels=1, callback=callback, samplerate=self.fs, dtype='float32'):
+        with sd.OutputStream(channels=1, callback=callback, samplerate=self.fs, dtype='float32', blocksize=1024):
             while True:
                 with self.lock:
                     if not self.running:
@@ -67,6 +76,16 @@ class AudioGeneration:
     def set_amplitude(self,amplitude):
         with self.lock:
             self.amplitude=amplitude
+    def set_parameters(self, freq, amplitude):
+        with self.lock:
+            alpha = 0.2 # smoothing factor ,, how much influence the new value has compared to the old value (self.freq, self.ampl
+            self.freq = self.freq * (1-alpha) + freq * alpha
+            self.amplitude = self.amplitude * (1-alpha) + amplitude * alpha
+            # exponential smoothing: low-pass filtering.
+    ##def set_reverb(self):
+        #sets reverb,,
+
+
 
 
 class App:
@@ -81,7 +100,12 @@ class App:
         self.canvas = tk.Canvas(root, width=640, height=480)
         self.canvas.pack()
 
-        self.audio_gen.start_audio()
+        self.frame_count = 0
+        self.freq_buffer = []
+        self.amp_buffer = []
+        self.smoothing_window = 5
+        self.update_interval = 5  # update audio every N frames
+
         self.update_video()
 
     def update_video(self):
@@ -91,23 +115,59 @@ class App:
             results = self.hand_tracker.detect_hands(frame)
 
             if results.multi_hand_landmarks:
+                self.audio_gen.start_audio()
                 for hand_landmarks in results.multi_hand_landmarks:
                     self.hand_tracker.drawing_utils.draw_landmarks(
                         frame, hand_landmarks, mp.solutions.hands.HAND_CONNECTIONS
                     )
 
-                    #palm_y : amplitude
-                    #palm_x : frequency
-
+                    # Palm position (landmark 0)
                     palm_pos = hand_landmarks.landmark[0]
-                    normalized_x = 1.0 - palm_pos.x
-                    freq = 220 + (880 - 220) * normalized_x
 
-                    self.audio_gen.set_frequency(freq)
+                    # Map palm_x to frequency
+                    palmpos_x = 1.0 - palm_pos.x
+                    freq = 220 + (880 - 220) * palmpos_x
 
-                    normalized_y = 1.0 - palm_pos.y
-                    amplitude = 0.1 + 0.4 * normalized_y
-                    self.audio_gen.set_amplitude(amplitude)
+                    # Map palm_y to amplitude
+                    palmpos_y = 1.0 - palm_pos.y
+                    amplitude = 0.1 + 0.4 * palmpos_y
+
+                    # Store recent values for smoothing
+                    self.freq_buffer.append(freq)
+                    self.amp_buffer.append(amplitude)
+
+                    if len(self.freq_buffer) > self.smoothing_window:
+                        self.freq_buffer.pop(0)
+                        self.amp_buffer.pop(0)
+
+                    self.frame_count += 1
+                    if self.frame_count % self.update_interval == 0:
+                        avg_freq = sum(self.freq_buffer) / len(self.freq_buffer)
+                        avg_amp = sum(self.amp_buffer) / len(self.amp_buffer)
+                        self.audio_gen.set_parameters(avg_freq, avg_amp)
+
+                    # Mapping distance between thumb and index for reverb -- 4: thumb tip | 8: index tip
+                    thumbTip_pos = hand_landmarks.landmark[4]
+                    indexTip_pos = hand_landmarks.landmark[8]
+
+                    ## one issue i might face is that if the hand is close to the screen the difference will appear larger, as whereas if it is farther away the difference will appear smaller.
+                    ## however, this can actually be utilised for a larger range?
+                    ## thumbtip_pos x - indextip_pos x & thumbtip_pos y - indextip_pos y ,, then grab hypotenuse?
+                    thumbTip_posX = 1.0 - thumbTip_pos.x
+                    thumbTip_posY = 1.0 - thumbTip_pos.y
+
+                    indexTip_posX = 1.0 - indexTip_pos.x
+                    indexTip_posY = 1.0 - indexTip_pos.y
+
+                    thumbTip_posXY = [thumbTip_posX, thumbTip_posY]
+
+                    indexTip_posXY = [indexTip_posX, indexTip_posY]
+
+                    tipDistance_reverb = math.dist(thumbTip_posXY,indexTip_posXY)
+                    ###print(tipDistance_reverb)
+
+            else:
+                self.audio_gen.stop_audio()
 
             img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = ImageTk.PhotoImage(Image.fromarray(img))
@@ -126,3 +186,11 @@ if __name__ == "__main__":
     app = App(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()
+
+## To Do:
+# Add a slider to adjust starting frequence
+# buttons to adjust soundwave
+# reverb control thumb and index tips.
+# can feed outstream from sd into the system again to apply effects?
+#
+
