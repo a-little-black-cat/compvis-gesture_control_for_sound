@@ -8,17 +8,12 @@ from PIL import Image, ImageTk
 from pysndfx import AudioEffectsChain
 import math
 
-fx = (
-    AudioEffectsChain()
-    .highshelf()
-    .reverb()
-)
 
 class HandTracker:
     def __init__(self):
         self.hands = mp.solutions.hands.Hands(
-            max_num_hands=1,
-            min_detection_confidence=0.7,
+            max_num_hands=2,
+            min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
         self.drawing_utils = mp.solutions.drawing_utils
@@ -28,9 +23,6 @@ class HandTracker:
         results = self.hands.process(rgb)
         return results
 
-import numpy as np
-import sounddevice as sd
-import threading
 
 class AudioGeneration:
     def __init__(self):
@@ -137,67 +129,82 @@ class App:
 
     def update_video(self):
         ret, frame = self.cap.read()
+
         if ret:
             frame = cv2.flip(frame, 1)
             results = self.hand_tracker.detect_hands(frame)
 
+            saw_left = False
+            saw_right = False
+
             if results.multi_hand_landmarks:
                 self.audio_gen.start_audio()
-                for hand_landmarks in results.multi_hand_landmarks:
+                for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                    handedness = results.multi_handedness[idx].classification[0].label
+
                     self.hand_tracker.drawing_utils.draw_landmarks(
                         frame, hand_landmarks, mp.solutions.hands.HAND_CONNECTIONS
                     )
 
                     # Palm position (landmark 0)
-                    palm_pos = hand_landmarks.landmark[0]
+                    if handedness == "Left":
+                        saw_left = True
+                        Lpalm_pos = hand_landmarks.landmark[0]
 
-                    # Map palm_x to frequency
-                    palmpos_x = 1.0 - palm_pos.x
-                    freq = 220 + (880 - 220) * palmpos_x
+                        # Map Lpalm_x to frequency
+                        Lpalmpos_x = 1.0 - Lpalm_pos.x
+                        freq = 220 + (880 - 220) * Lpalmpos_x
 
-                    # Map palm_y to amplitude
-                    palmpos_y = 1.0 - palm_pos.y
-                    amplitude = 0.1 + 0.4 * palmpos_y
+                        # Map palm_y to amplitude
+                        Lpalmpos_y = 1.0 - Lpalm_pos.y
+                        amplitude = 0.1 + 0.4 * Lpalmpos_y
 
-                    # Store recent values for smoothing
-                    self.freq_buffer.append(freq)
-                    self.amp_buffer.append(amplitude)
+                        # Store recent values for smoothing
+                        self.freq_buffer.append(freq)
+                        self.amp_buffer.append(amplitude)
+                        if len(self.freq_buffer) > self.smoothing_window:
+                            self.freq_buffer.pop(0)
+                            self.amp_buffer.pop(0)
+                    if handedness == "Right":
+                        saw_right = True
+                            # Mapping distance between thumb and index for reverb
+                        thumbTip_pos = hand_landmarks.landmark[4]
+                        indexTip_pos = hand_landmarks.landmark[8]
 
-                    # Mapping distance between thumb and index for reverb
-                    thumbTip_pos = hand_landmarks.landmark[4]
-                    indexTip_pos = hand_landmarks.landmark[8]
+                        thumbTip_posX = 1.0 - thumbTip_pos.x
+                        thumbTip_posY = 1.0 - thumbTip_pos.y
+                        indexTip_posX = 1.0 - indexTip_pos.x
+                        indexTip_posY = 1.0 - indexTip_pos.y
 
-                    thumbTip_posX = 1.0 - thumbTip_pos.x
-                    thumbTip_posY = 1.0 - thumbTip_pos.y
-                    indexTip_posX = 1.0 - indexTip_pos.x
-                    indexTip_posY = 1.0 - indexTip_pos.y
+                        tipDistance_reverb = math.hypot(
+                            thumbTip_posX - indexTip_posX, thumbTip_posY - indexTip_posY
+                        )
 
-                    tipDistance_reverb = math.hypot(
-                        thumbTip_posX - indexTip_posX, thumbTip_posY - indexTip_posY
-                    )
+                        # Normalize and map distance to a room size (e.g., 0.1 to 1.0)
+                        # Assuming hand moves ~0.05 to 0.4 range in distance
+                        min_dist = 0.03
+                        max_dist = 0.4
+                        normalized_dist = (tipDistance_reverb - min_dist) / (max_dist - min_dist)
+                        normalized_dist = min(max(normalized_dist, 0.0), 1.0)
 
-                    # Normalize and map distance to a room size (e.g., 0.1 to 1.0)
-                    # Assuming hand moves ~0.05 to 0.4 range in distance
-                    min_dist = 0.03
-                    max_dist = 0.4
-                    normalized_dist = (tipDistance_reverb - min_dist) / (max_dist - min_dist)
-                    normalized_dist = min(max(normalized_dist, 0.0), 1.0)
-
-                    # Map to roomSize: 0.1 to 1.0 (reverb time)
-                    room_size = 0.1 + normalized_dist * 0.9
-                    self.roomSize_buffer.append(room_size)
-
-                    if len(self.freq_buffer) > self.smoothing_window:
-                        self.freq_buffer.pop(0)
-                        self.amp_buffer.pop(0)
-                        self.roomSize_buffer.pop(0)
-
+                        # Map to roomSize: 0.1 to 1.0 (reverb time)
+                        room_size = 0.1 + normalized_dist * 0.9
+                        self.roomSize_buffer.append(room_size)
+                        if len(self.roomSize_buffer) > self.smoothing_window:
+                            self.roomSize_buffer.pop(0)
                     self.frame_count += 1
-                    if self.frame_count % self.update_interval == 0:
-                        avg_freq = sum(self.freq_buffer) / len(self.freq_buffer)
-                        avg_amp = sum(self.amp_buffer) / len(self.amp_buffer)
-                        avg_roomSize = sum(self.roomSize_buffer) / len(self.roomSize_buffer)
-                        self.audio_gen.set_parameters(avg_freq, avg_amp,avg_roomSize)
+                    if self.frame_count % self.update_interval == 0 and (saw_left or saw_right):
+                        avg_freq = sum(self.freq_buffer) / len(
+                            self.freq_buffer) if self.freq_buffer else self.audio_gen.freq
+                        avg_amp = sum(self.amp_buffer) / len(
+                            self.amp_buffer) if self.amp_buffer else self.audio_gen.amplitude
+                        avg_roomSize = sum(self.roomSize_buffer) / len(
+                            self.roomSize_buffer) if self.roomSize_buffer else self.audio_gen.roomSize
+
+                        self.audio_gen.set_parameters(avg_freq, avg_amp, avg_roomSize)
+
+
+
 
             else:
                 self.audio_gen.stop_audio()
