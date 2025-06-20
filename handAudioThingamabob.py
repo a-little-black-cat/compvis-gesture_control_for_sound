@@ -8,6 +8,13 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 import math
 
+## the problem libraries
+##import wand.color
+##import wand.compat
+##from math import cos,pi,sin
+##import tensorflow.keras.models
+##import tensorflow.keras.layers
+
 
 class HandTracker:
     def __init__(self):
@@ -22,6 +29,10 @@ class HandTracker:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(rgb)
         return results
+
+
+
+
 
 
 class AudioGeneration:
@@ -135,6 +146,8 @@ class App:
         # Init tracker/audio
         self.hand_tracker = HandTracker()
         self.audio_gen = AudioGeneration()
+
+        #self.visualizer = Visualize()
 
         # Buffers for smoothing
         self.frame_count = 0
@@ -342,7 +355,9 @@ class App:
                         normalized_dist = min(max(normalized_dist, 0.0), 1.0)
 
                         room_size = 0.1 + normalized_dist * 0.9
+
                         self.roomSize_buffer.append(room_size)
+                        #Visualizer.visualize_Reverb(self, room_size)
                         if len(self.roomSize_buffer) > self.smoothing_window:
                             self.roomSize_buffer.pop(0)
 
