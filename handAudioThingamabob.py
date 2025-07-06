@@ -7,13 +7,10 @@ import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
 import math
-
-## the problem libraries
-##import wand.color
-##import wand.compat
-##from math import cos,pi,sin
-##import tensorflow.keras.models
-##import tensorflow.keras.layers
+from itertools import product
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class HandTracker:
@@ -31,12 +28,8 @@ class HandTracker:
         return results
 
 
-
-
-
-
 class AudioGeneration:
-    def __init__(self):
+    def __init__(self, app_instance=None):
         self.fs = 16000  # Sample rate
         self.freq = 440.0
         self.amplitude = 0.2
@@ -45,6 +38,7 @@ class AudioGeneration:
         self.phase = 0.0
         self.roomSize = 0.3  # Affects reverb time
         self.phase_offset = 0
+        self.app_instance = app_instance
 
     def start_audio(self):
         if not self.running:
@@ -66,6 +60,8 @@ class AudioGeneration:
     def set_room_size(self, roomSize):
         with self.lock:
             self.roomSize = roomSize
+            if self.app_instance:  # check if app_instance exists
+                self.app_instance.visualizeReverb(self.roomSize)
 
     def set_parameters(self, freq, amplitude, roomSize):
         with self.lock:
@@ -73,11 +69,11 @@ class AudioGeneration:
             self.freq = self.freq * (1 - alpha) + freq * alpha
             self.amplitude = self.amplitude * (1 - alpha) + amplitude * alpha
             self.roomSize = self.roomSize * (1 - alpha) + roomSize * alpha
+            if self.app_instance:
+                self.app_instance.visualizeReverb(self.roomSize)
 
     def apply_reverb(self, signal, reverb_time, decay_factor=0.6, num_echoes=5):
-        """
-        Apply basic reverb using delayed and decayed signal copies.
-        """
+
         reverb_signal = np.copy(signal)
         delay_samples = int((reverb_time / num_echoes) * self.fs)
 
@@ -143,11 +139,9 @@ class App:
         self.canvas = tk.Canvas(root, width=640, height=480, bg="black")
         self.canvas.pack()
 
-        # Init tracker/audio
+        # Init tracker/audio classes
         self.hand_tracker = HandTracker()
-        self.audio_gen = AudioGeneration()
-
-        #self.visualizer = Visualize()
+        self.audio_gen = AudioGeneration(app_instance=self)
 
         # Buffers for smoothing
         self.frame_count = 0
@@ -157,8 +151,26 @@ class App:
         self.smoothing_window = 5
         self.update_interval = 5
 
+        #init matplotlib
+        # Matplotlib plot for reverb visualization
+        self.fig = plt.Figure(figsize=(3, 3), dpi=100, facecolor='None') #facecolor = 'none' sets the figure background transparent, (3,3) creates a smaller figure
+        self.ax = self.fig.add_subplot(111, projection='3d')
+        self.ax.set_title("Reverb Room Size")
+        self.ax.set_xlabel("X")
+        self.ax.set_ylabel("Y")
+        self.ax.set_zlabel("Z")
+
+        self.canvas_plot = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas_widget = self.canvas_plot.get_tk_widget()
+        #self.canvas_widget.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True) # Commented out as per your previous request
+
+        self.visualizeReverb(self.audio_gen.roomSize)
+        ##init cube_image to none, updated through visualizeReverb
+        self.cube_image = None
+        self.cube_image_tk = None
+
         # Detect available cameras and populate dropdown
-        self.select_camera(maxCameras=10)
+        self.select_camera(maxCameras=10) #calls update_video
 
     def select_camera(self, maxCameras=10):
         self.camArr = []
@@ -296,89 +308,50 @@ class App:
 
         if initial_frame is not None:
             ret, frame = initial_frame  # Unpack ret and frame
+            initial_frame = None # Clear initial frame so subsequent calls read from camera
         else:
             ret, frame = self.cap.read()
 
         if ret:  # Now 'ret' is guaranteed to be assigned
-            # No need to resize frame here, canvas is already sized to match
             frame = cv2.flip(frame, 1)  # Flip horizontally for mirror effect
+
+            # Call detect_hands and pass the frame
             results = self.hand_tracker.detect_hands(frame)
 
-            saw_left = False
-            saw_right = False
+            # Pass the results and frame to check_gesture
+            self.check_gesture(results, frame)
 
-            if results.multi_hand_landmarks:
-                self.audio_gen.start_audio()
-                for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
-                    handedness = results.multi_handedness[idx].classification[0].label
+            if self.cube_image is not None:
+                # Resize cube image to desired overlay size (e.g., 200x200 pixels)
+                overlay_size = 200
+                cube_resized = self.cube_image.resize((overlay_size, overlay_size), Image.LANCZOS)
+                cube_np = np.array(cube_resized)  # Convert back to numpy array (RGBA)
 
-                    self.hand_tracker.drawing_utils.draw_landmarks(
-                        frame, hand_landmarks, mp.solutions.hands.HAND_CONNECTIONS
-                    )
+                # Convert video frame to RGBA for alpha blending
+                frame_rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
 
-                    if handedness == "Left":
-                        saw_left = True
-                        Lpalm_pos = hand_landmarks.landmark[0]
+                # Define position for the overlay (e.g., top-left corner with some padding)
+                x_offset = 20
+                y_offset = 20
 
-                        # Use Lpalm_pos.x directly for frequency after flipping
-                        # If you want low-to-high frequency to map to visual left-to-right hand movement:
-                        # freq = 220 + (880 - 220) * Lpalm_pos.x
-                        # If you want low-to-high frequency to map to visual right-to-left hand movement (more natural for a mirror):
-                        freq = 220 + (880 - 220) * (1.0 - Lpalm_pos.x)  # Inverted X for frequency
+                # Check bounds to ensure overlay fits within the frame
+                y1, y2 = y_offset, y_offset + cube_np.shape[0]
+                x1, x2 = x_offset, x_offset + cube_np.shape[1]
 
-                        amplitude = 0.1 + 0.4 * (
-                                    1.0 - Lpalm_pos.y)  # Inverted Y for amplitude (higher on screen = louder)
+                # Ensure dimensions match for blending
+                alpha_s = cube_np[:, :, 3] / 255.0  # Alpha channel of the cube
+                alpha_l = 1.0 - alpha_s  # Inverse alpha
 
-                        self.freq_buffer.append(freq)
-                        self.amp_buffer.append(amplitude)
-                        if len(self.freq_buffer) > self.smoothing_window:
-                            self.freq_buffer.pop(0)
-                            self.amp_buffer.pop(0)
+                for c in range(0, 3):  # Iterate over R, G, B channels
+                    frame_rgba[y1:y2, x1:x2, c] = (alpha_s * cube_np[:, :, c] +
+                                                   alpha_l * frame_rgba[y1:y2, x1:x2, c])
 
-                    if handedness == "Right":
-                        saw_right = True
-                        thumbTip_pos = hand_landmarks.landmark[4]
-                        indexTip_pos = hand_landmarks.landmark[8]
-
-                        thumbTip_posX = thumbTip_pos.x
-                        thumbTip_posY = thumbTip_pos.y
-                        indexTip_posX = indexTip_pos.x
-                        indexTip_posY = indexTip_pos.y
-
-                        tipDistance_reverb = math.hypot(
-                            thumbTip_posX - indexTip_posX, thumbTip_posY - indexTip_posY
-                        )
-
-                        min_dist = 0.03
-                        max_dist = 0.4
-                        normalized_dist = (tipDistance_reverb - min_dist) / (max_dist - min_dist)
-                        normalized_dist = min(max(normalized_dist, 0.0), 1.0)
-
-                        room_size = 0.1 + normalized_dist * 0.9
-
-                        self.roomSize_buffer.append(room_size)
-                        #Visualizer.visualize_Reverb(self, room_size)
-                        if len(self.roomSize_buffer) > self.smoothing_window:
-                            self.roomSize_buffer.pop(0)
-
-                self.frame_count += 1
-                if self.frame_count % self.update_interval == 0 and (saw_left or saw_right):
-                    avg_freq = sum(self.freq_buffer) / len(
-                        self.freq_buffer) if self.freq_buffer else self.audio_gen.freq
-                    avg_amp = sum(self.amp_buffer) / len(
-                        self.amp_buffer) if self.amp_buffer else self.audio_gen.amplitude
-                    avg_roomSize = sum(self.roomSize_buffer) / len(
-                        self.roomSize_buffer) if self.roomSize_buffer else self.audio_gen.roomSize
-
-                    self.audio_gen.set_parameters(avg_freq, avg_amp, avg_roomSize)
-            else:
-                self.audio_gen.stop_audio()
+                frame = cv2.cvtColor(frame_rgba, cv2.COLOR_BGRA2BGR)
 
             # Convert frame to PhotoImage and display on canvas
-            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = ImageTk.PhotoImage(Image.fromarray(img))
-            self.canvas.create_image(0, 0, anchor=tk.NW, image=img)
-            self.canvas.imgtk = img  # Keep a reference to prevent garbage collection
+            img_tk = ImageTk.PhotoImage(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=img_tk)
+            self.canvas.imgtk = img_tk  # Keep a reference to prevent garbage collection
 
             # Schedule next update AFTER the current frame is processed
             self.after_id = self.root.after(10, self.update_video)
@@ -391,7 +364,75 @@ class App:
                 self.cap = None  # Indicate no active camera
             self.audio_gen.stop_audio()
             self.canvas.delete("all")  # Clear the display
-            self.after_id = self.root.after(1000, self.update_video)  # Try to update again after a second
+            self.after_id = self.root.after(1000, self.update_video)# Try to update again after a second
+
+    def check_gesture(self, results, frame):
+        saw_left = False
+        saw_right = False
+
+        if results.multi_hand_landmarks:
+            for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                handedness = results.multi_handedness[idx].classification[0].label
+
+                self.hand_tracker.drawing_utils.draw_landmarks(
+                    frame, hand_landmarks, mp.solutions.hands.HAND_CONNECTIONS
+                )
+
+                if handedness == "Left":
+                    saw_left = True
+                    Lpalm_pos = hand_landmarks.landmark[0]
+
+                    # If you want low-to-high frequency to map to visual right-to-left hand movement (more natural for a mirror):
+                    freq = 220 + (880 - 220) * (1.0 - Lpalm_pos.x)  # Inverted X for frequency
+
+                    amplitude = 0.1 + 0.4 * (
+                            1.0 - Lpalm_pos.y)  # Inverted Y for amplitude (higher on screen = louder)
+
+                    self.freq_buffer.append(freq)
+                    self.amp_buffer.append(amplitude)
+                    if len(self.freq_buffer) > self.smoothing_window:
+                        self.freq_buffer.pop(0)
+                        self.amp_buffer.pop(0)
+
+                if handedness == "Right":
+                    saw_right = True
+                    thumbTip_pos = hand_landmarks.landmark[4]
+                    indexTip_pos = hand_landmarks.landmark[8]
+
+                    thumbTip_posX = thumbTip_pos.x
+                    thumbTip_posY = thumbTip_pos.y
+                    indexTip_posX = indexTip_pos.x
+                    indexTip_posY = indexTip_pos.y
+
+                    tipDistance_reverb = math.hypot(
+                        thumbTip_posX - indexTip_posX, thumbTip_posY - indexTip_posY
+                    )
+
+                    min_dist = 0.03
+                    max_dist = 0.4
+                    normalized_dist = (tipDistance_reverb - min_dist) / (max_dist - min_dist)
+                    normalized_dist = min(max(normalized_dist, 0.0), 1.0)
+
+                    room_size = 0.1 + normalized_dist * 0.9
+
+                    self.roomSize_buffer.append(room_size)
+                    if len(self.roomSize_buffer) > self.smoothing_window:
+                        self.roomSize_buffer.pop(0)
+
+            self.audio_gen.start_audio()
+
+            self.frame_count += 1
+            if self.frame_count % self.update_interval == 0 and (saw_left or saw_right):
+                avg_freq = sum(self.freq_buffer) / len(
+                    self.freq_buffer) if self.freq_buffer else self.audio_gen.freq
+                avg_amp = sum(self.amp_buffer) / len(
+                    self.amp_buffer) if self.amp_buffer else self.audio_gen.amplitude
+                avg_roomSize = sum(self.roomSize_buffer) / len(
+                    self.roomSize_buffer) if self.roomSize_buffer else self.audio_gen.roomSize
+
+                self.audio_gen.set_parameters(avg_freq, avg_amp, avg_roomSize)
+        else:
+            self.audio_gen.stop_audio()
 
     def on_close(self):
         self.audio_gen.stop_audio()
@@ -404,10 +445,44 @@ class App:
             self.cap = None
         self.root.destroy()
 
+    def visualizeReverb(self, roomSize):
+        self.ax.clear()  # Clear the previous plot
+
+        r_val = roomSize / 2
+        r = [-r_val, r_val]
+        vertices = np.array(list(product(r, r, r)))
+
+        # Define the 6 faces of the cube (important for Poly3DCollection)
+        faces = [
+            [vertices[0], vertices[1], vertices[3], vertices[2]],  # Front face
+            [vertices[4], vertices[5], vertices[7], vertices[6]],  # Back face
+            [vertices[0], vertices[1], vertices[5], vertices[4]],  # Bottom face
+            [vertices[2], vertices[3], vertices[7], vertices[6]],  # Top face
+            [vertices[0], vertices[2], vertices[6], vertices[4]],  # Left face
+            [vertices[1], vertices[3], vertices[7], vertices[5]]  # Right face
+        ]
+
+        # Plot the cube as a collection of polygons for better visualization
+        self.ax.add_collection3d(Poly3DCollection(faces, facecolors=None, linewidths=1, edgecolors='r', alpha=.25))
+
+        # Update axis limits dynamically -- might hide
+        self.ax.set_axis_off()
+        self.ax.set_facecolor((0.0,0.0,0.0,0.0))
+        self.ax.set_xlim([-r_val, r_val])
+        self.ax.set_ylim([-r_val, r_val])
+        self.ax.set_zlim([-r_val, r_val])
+        self.ax.view_init(elev=20, azim=45) #elev:elevation, azim:azimuth to get desired perspective for the cube
+        self.ax.set_title(f"Reverb Room Size: {roomSize:.2f}")
+
+        # Draw the updated plot
+        self.fig.canvas.draw()
+        buf = self.fig.canvas.tostring_argb() #getrgba data from the figure's canvas
+        pil_image = Image.frombuffer('RGBA', self.fig.canvas.get_width_height(), buf, 'raw', 'ARGB', 0, 1) #convert to pil image (mode rgba)
+        self.cube_image = pil_image.convert('RGBA')
+
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = App(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()
-    ##
