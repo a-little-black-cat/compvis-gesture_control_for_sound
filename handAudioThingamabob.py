@@ -1,3 +1,5 @@
+import time
+
 import cv2
 import mediapipe as mp
 import threading
@@ -394,6 +396,8 @@ class App:
                         self.freq_buffer.pop(0)
                         self.amp_buffer.pop(0)
 
+
+
                 if handedness == "Right":
                     saw_right = True
                     thumbTip_pos = hand_landmarks.landmark[4]
@@ -463,7 +467,10 @@ class App:
         ]
 
         # Plot the cube as a collection of polygons for better visualization
-        self.ax.add_collection3d(Poly3DCollection(faces, facecolors=None, linewidths=1, edgecolors='r', alpha=.25))
+        self.ax.add_collection3d(Poly3DCollection(faces, facecolors=None, linewidths=1, edgecolors='r', alpha=0.0))
+
+        elev_Val = 50 * time.time() # vertical rotation with time
+        roll_Val = 20 * time.time() # horizontal rotation with time
 
         # Update axis limits dynamically -- might hide
         self.ax.set_axis_off()
@@ -471,7 +478,7 @@ class App:
         self.ax.set_xlim([-r_val, r_val])
         self.ax.set_ylim([-r_val, r_val])
         self.ax.set_zlim([-r_val, r_val])
-        self.ax.view_init(elev=20, azim=45) #elev:elevation, azim:azimuth to get desired perspective for the cube
+        self.ax.view_init(elev=elev_Val, azim=45, roll=roll_Val ) #elev:elevation, azim:azimuth to get desired perspective for the cube
         self.ax.set_title(f"Reverb Room Size: {roomSize:.2f}")
 
         # Draw the updated plot
