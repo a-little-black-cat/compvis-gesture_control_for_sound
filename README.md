@@ -8,7 +8,7 @@
 - Layering of waves
 - Beats
 
- [Resource Collection](https://docs.google.com/document/d/1yDqPZPzLYKqq8rxzd4oFPWJkr4qFNhlX22U2ToVZrk8/edit?usp=sharing)
+[Resource Collection](https://docs.google.com/document/d/1yDqPZPzLYKqq8rxzd4oFPWJkr4qFNhlX22U2ToVZrk8/edit?usp=sharing)
 
 [Progress Playlist](https://youtube.com/playlist?list=PLQhuLMBlKNDU2iTLiPBdbKMmm2QBnzUct&si=pgDlmxGBxa87cKfe)
 
