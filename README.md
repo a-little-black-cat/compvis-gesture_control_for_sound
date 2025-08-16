@@ -12,6 +12,3 @@
 
 [Progress Playlist](https://youtube.com/playlist?list=PLQhuLMBlKNDU2iTLiPBdbKMmm2QBnzUct&si=pgDlmxGBxa87cKfe)
 
-
-Progress can be viewed here: https://youtube.com/playlist?list=PLQhuLMBlKNDU2iTLiPBdbKMmm2QBnzUct&si=pgDlmxGBxa87cKfe
-
